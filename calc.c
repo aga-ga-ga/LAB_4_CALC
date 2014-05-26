@@ -49,26 +49,73 @@ long calculate(void) {
 #include <linux/fs.h>
 #include <linux/slab.h>
 
-static struct attribute arg1;
+static struct attribute arg1 = {
+	.name = ARG1,
+	.mode = 0666,
+};
 
-static struct attribute arg2;
+static struct attribute arg2 = {
+	.name = ARG2,
+	.mode = 0666,
+};
 
-static struct attribute operation;
+static struct attribute operation = {
+	.name = OPERATION,
+	.mode = 0666,
+};
 
-static struct attribute result;
+static struct attribute result = {
+	.name = RESULT,
+	.mode = 0666,
+};
 
-static struct attribute * calc_attributes[];
+static struct attribute * calc_attributes[] = {
+	&arg1,
+	&arg2,
+	&operation,
+	&result,
+	NULL
+};
 
 
 static ssize_t default_show(struct kobject *kobj, struct attribute *attr,
-		char *buf);
+		char *buf)
+{
+	if (!strcmp(attr->name, RESULT)) {
+		long res = calculate();
+
+		return sprintf(buf, "%ld\n", res);
+	} else {
+		return 0;
+	}
+}
 
 static ssize_t default_store(struct kobject *kobj, struct attribute *attr,
-		const char *buf, size_t len);
+		const char *buf, size_t len)
+{
+	if (len > WRITE_SIZE) {
+		len = WRITE_SIZE;
+	}
 
-static struct sysfs_ops calc_ops;
+	if (!strcmp(attr->name, ARG1)) {
+		memcpy(arg1_input, buf, len);
+	} else if (!strcmp(attr->name, ARG2)) {
+		memcpy(arg2_input, buf, len);
+	} else if (!strcmp(attr->name, OPERATION)) {
+		memcpy(operation_input, buf, len);
+	}
+	return len;
+}
 
-static struct kobj_type calc_type;
+static struct sysfs_ops calc_ops = {
+	.show = default_show,
+	.store = default_store,
+};
+
+static struct kobj_type calc_type = {
+	.sysfs_ops = &calc_ops,
+	.default_attrs = calc_attributes,
+};
 //Во внешнем представлении в каталоге /sys каждому объекту struct kobject соответствует каталог, что видно и из самого определения структуры
 //Но это вовсе не означает, что каждый инициализированный объект struct kobject автоматически экспортируется в файловую систему /sys. 
 //Для того, чтобы сделать объект видимым в /sys, необходимо вызвать: kobject_add
