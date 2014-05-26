@@ -1,7 +1,9 @@
+#define SYSFS
+
+
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/string.h>
-#include <linux/proc_fs.h>
 
 #define WRITE_SIZE 100
 
@@ -15,16 +17,6 @@
 static char arg1_input[WRITE_SIZE];
 static char arg2_input[WRITE_SIZE];
 static char operation_input[WRITE_SIZE];
-
-
-
-
-struct proc_dir_entry *calc_dir;
-struct proc_dir_entry *arg1;
-struct proc_dir_entry *arg2;
-struct proc_dir_entry *operation;
-struct proc_dir_entry *result;
-
 
 long calculate(void) {
 	long a1 = 0;
@@ -50,6 +42,79 @@ long calculate(void) {
 	return res;
 }
 
+
+#ifdef SYSFS
+
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/slab.h>
+
+static struct attribute arg1;
+
+static struct attribute arg2;
+
+static struct attribute operation;
+
+static struct attribute result;
+
+static struct attribute * calc_attributes[];
+
+
+static ssize_t default_show(struct kobject *kobj, struct attribute *attr,
+		char *buf);
+
+static ssize_t default_store(struct kobject *kobj, struct attribute *attr,
+		const char *buf, size_t len);
+
+static struct sysfs_ops calc_ops;
+
+static struct kobj_type calc_type;
+//Во внешнем представлении в каталоге /sys каждому объекту struct kobject соответствует каталог, что видно и из самого определения структуры
+//Но это вовсе не означает, что каждый инициализированный объект struct kobject автоматически экспортируется в файловую систему /sys. 
+//Для того, чтобы сделать объект видимым в /sys, необходимо вызвать: kobject_add
+struct kobject *calc_obj;
+static int __init sysfsexample_module_init(void)
+{
+	int err = -1;
+	//GFP_KERNE  Это обычный запрос, который может блокировать поток. Данный флаг используется при выделении памяти в контексте потока, который может заснуть.
+	calc_obj = kzalloc(sizeof(*calc_obj), GFP_KERNEL);
+	if (calc_obj) {
+		kobject_init(calc_obj, &calc_type);
+		if (kobject_add(calc_obj, NULL, "%s", PARENT_DIR)) {
+			 err = -1;
+			 printk("Sysfs creation failed\n");
+			 //вызов kobject_put () будет уменьшать 
+			 //счетчик ссылок и, возможно, освободить объект calc_obj
+			 kobject_put(calc_obj);
+			 calc_obj = NULL;
+		}
+		err = 0;
+	}
+	return err;
+}
+
+static void __exit sysfsexample_module_exit(void)
+{
+	if (calc_obj) {
+		kobject_put(calc_obj);
+		kfree(calc_obj);
+	}
+}
+
+module_init(sysfsexample_module_init);
+module_exit(sysfsexample_module_exit);
+MODULE_LICENSE("GPL");
+
+
+#else
+
+#include <linux/proc_fs.h>
+
+struct proc_dir_entry *calc_dir;
+struct proc_dir_entry *arg1;
+struct proc_dir_entry *arg2;
+struct proc_dir_entry *operation;
+struct proc_dir_entry *result;
 
 
 /*
@@ -100,21 +165,24 @@ int read_result(char *buffer, char **buffer_location,
 
 	return sprintf(buffer, "%ld\n", res);
 }
+
+
 int init_module()
 {
 	// parent dir
 	//значение NULL если файл находится непосредственно в каталоге /proc
 	calc_dir = proc_mkdir(PARENT_DIR, NULL);
-	if(!calc_dir) {
+	if (!calc_dir) {
 		printk(KERN_INFO "Error creating proc entry");
 		return -ENOMEM;
 	}
+
 	// arg1
 	// 0666 - права доступа для файлов
 	// 0666 - 0022 = 0644 (что соответствует правам -rw-r--r-- для file)
 	// С помощью команды create_proc_entry() в указанной выше поддиректории создается обычный файл "ARG1" с правами доступа 0666.
 	arg1 = create_proc_entry(ARG1, 0666, calc_dir);
-	if(!arg1) {
+	if (!arg1) {
 	    	printk(KERN_INFO "Error creating proc entry");
 	    	return -ENOMEM;
     	}
@@ -123,7 +191,7 @@ int init_module()
 
 	// arg2
 	arg2 = create_proc_entry(ARG2, 0666, calc_dir);
-	if(!arg2) {
+	if (!arg2) {
 	    	printk(KERN_INFO "Error creating proc entry");
 	    	return -ENOMEM;
     	}
@@ -131,7 +199,7 @@ int init_module()
 
 	// operation
 	operation = create_proc_entry(OPERATION, 0666, calc_dir);
-	if(!operation) {
+	if (!operation) {
 	    	printk(KERN_INFO "Error creating proc entry");
 	    	return -ENOMEM;
     	}
@@ -139,7 +207,7 @@ int init_module()
 
 	// result
 	result = create_proc_entry(RESULT, 0666, calc_dir);
-	if(!result) {
+	if (!result) {
 	    	printk(KERN_INFO "Error creating proc entry");
 	    	return -ENOMEM;
 	}
@@ -158,3 +226,4 @@ void cleanup_module()
 	remove_proc_entry(RESULT, NULL);
 	printk(KERN_INFO "/proc/%s removed\n", PARENT_DIR);
 }
+#endif
